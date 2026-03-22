@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Vent 06–10 — Atlas Montgolfière (Bourrous)</title>
+  <style>
+    :root{
+      --bg:#0b1020; --card:#111730; --text:#e8eefb; --muted:#9fb0d3;
+      --c1:#c8e6c9; /* calme */
+      --c2:#ffff00; /* modéré */
+      --c3:#ffa500; /* difficile */
+      --c4:#ff0000; /* interdit */
+    }
+
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial,"Noto Sans",sans-serif;
+      background:var(--bg);
+      color:var(--text);
+    }
+
+    .wrap{max-width:980px; margin:0 auto; padding:0 10px 28px}
+    header{padding:14px 6px 8px}
+    h1{font-size:18px; margin:0 0 6px 0}
+    .sub{color:#fff; font-size:12px; line-height:1.3}
+
+    .card{
+      background:var(--card);
+      border:1px solid #1d2646;
+      border-radius:16px;
+      padding:10px;
+      box-shadow:0 6px 24px rgba(0,0,0,.25)
+    }
+
+    .brand{display:flex; align-items:center; gap:14px; margin-bottom:10px}
+    .logo{
+      width:88px; height:88px; object-fit:contain; background:#fff; padding:6px;
+      border-radius:12px; border:1px solid #1d2646;
+      box-shadow:0 3px 16px rgba(0,0,0,.35);
+      image-rendering:-webkit-optimize-contrast;
+    }
+    .brand .name{font-weight:700; letter-spacing:.2px}
+
+    .table{width:100%; border-collapse:separate; border-spacing:6px; table-layout:fixed}
+    .table thead th{
+      position:sticky; top:0; background:var(--bg); z-index:1;
+      font-size:12px; color:#fff; padding:6px 2px
+    }
+    .table thead th .small{color:#fff !important}
+    .table tbody th{
+      font-size:13px; color:var(--text); text-align:left; padding:10px 6px
+    }
+
+    .cell{
+      border-radius:10px;
+      text-align:center;
+      padding:12px 4px 10px;
+      font-weight:700;
+      box-shadow:inset 0 0 0 1px rgba(0,0,0,.1);
+      color:#000 !important;
+      line-height:1.05;
+      overflow-wrap:anywhere;
+      word-break:break-word;
+    }
+
+    .dir{
+      display:block;
+      margin-top:4px;
+      font-size:10px;
+      font-weight:700;
+      line-height:1.15;
+      color:#222 !important;
+      white-space:normal;
+    }
+
+    .small{font-size:11px; font-weight:500; color:#1a1a1a}
+
+    .legend{display:flex; gap:10px; flex-wrap:wrap; margin:10px 0 6px}
+    .badge{display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--muted)}
+    .swatch{width:14px; height:14px; border-radius:4px; border:1px solid rgba(0,0,0,.2)}
+
+    .footer{margin-top:8px; font-size:12px; color:var(--muted)}
+    .err{
+      margin-top:10px;
+      background:#2b1a1a;
+      border:1px solid #6b2a2a;
+      color:#ffb4b4;
+      padding:10px;
+      border-radius:10px;
+      font-size:13px;
+      white-space:pre-line;
+    }
+    .hidden{display:none}
+  </style>
+</head>
+<body>
+  <header class="wrap">
+    <div class="brand">
+      <img
+        class="logo"
+        alt="Atlas Montgolfière logo"
+        src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSe2BA0J-TN9LaQHutj3corvQzucK1b78ybkg&s"
+        loading="eager"
+        decoding="sync"
+      />
+      <div>
+        <div class="name">Atlas Montgolfière</div>
+        <div class="sub">Bourrous, Marrakech</div>
+      </div>
+    </div>
+
+    <h1>Vent moyen (km/h) — Bourrous</h1>
+    <div class="sub">
+      vent moyen = moyenne (vent , rafales)<br>
+      Sources : Open-Meteo, ECMWF, Weatherbit
+    </div>
+  </header>
+
+  <main class="wrap">
+    <div class="card">
+      <div class="legend">
+        <span class="badge"><span class="swatch" style="background:var(--c1)"></span> calme (0–9)</span>
+        <span class="badge"><span class="swatch" style="background:var(--c2)"></span> Modéré (10–14)</span>
+        <span class="badge"><span class="swatch" style="background:var(--c3)"></span> Difficile (15–19)</span>
+        <span class="badge"><span class="swatch" style="background:var(--c4)"></span> Vol interdit (≥20)</span>
+      </div>
+
+      <div id="tableWrap" class="card">
+        <table class="table" id="tbl"></table>
+      </div>
+
+      <div class="footer">
+        * direction affichée uniquement le premier jour, selon l'endroit vers lequel le vent souffle
+      </div>
+
+      <div id="errors" class="err hidden"></div>
+    </div>
+  </main>
+
+  <script>
+    const LAT = 31.764051550936518;
+    const LON = -7.817831413787898;
+    const TZ  = "Africa/Casablanca";
+    const WEATHERBIT_KEY = "20f0554534cd4734a1a681cea2acfbff";
+
+    const HRS = [6, 7, 8, 9, 10];
+    const WEATHERBIT_HOURS = 120;
+
+    const COLORS = (v) => v < 10 ? 'var(--c1)' : v < 15 ? 'var(--c2)' : v < 20 ? 'var(--c3)' : 'var(--c4)';
+
+    function pad2(n){ return String(n).padStart(2, '0'); }
+
+    function toNum(v){
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    }
+
+    function ymdPartsInTz(dt, tz){
+      const p = new Intl.DateTimeFormat('en-CA', {
+        timeZone: tz,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      }).formatToParts(dt);
+
+      return {
+        y: parseInt(p.find(x => x.type === 'year').value, 10),
+        m: parseInt(p.find(x => x.type === 'month').value, 10),
+        d: parseInt(p.find(x => x.type === 'day').value, 10)
+      };
+    }
+
+    function addDaysYmd(y, m, d, days){
+      const tmp = new Date(Date.UTC(y, m - 1, d) + days * 86400000);
+      return {
+        y: tmp.getUTCFullYear(),
+        m: tmp.getUTCMonth() + 1,
+        d: tmp.getUTCDate()
+      };
+    }
+
+    function startEndIsoInTz(tz){
+      const now = new Date();
+
+      const hp = new Intl.DateTimeFormat('en-GB', {
+        timeZone: tz,
+        hour: '2-digit',
+        hourCycle: 'h23'
+      }).formatToParts(now);
+
+      const hour = parseInt(hp.find(x => x.type === 'hour').value, 10);
+
+      let { y, m, d } = ymdPartsInTz(now, tz);
+      if (hour >= 9) ({ y, m, d } = addDaysYmd(y, m, d, 1));
+
+      const startIso = `${y}-${pad2(m)}-${pad2(d)}`;
+      const e = addDaysYmd(y, m, d, 4);
+      const endIso = `${e.y}-${pad2(e.m)}-${pad2(e.d)}`;
+
+      return { startIso, endIso };
+    }
+
+    function dateIsoInTz(t, tz){
+      const p = new Intl.DateTimeFormat('en-CA', {
+        timeZone: tz,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      }).formatToParts(t);
+
+      const y = p.find(x => x.type === 'year').value;
+      const m = p.find(x => x.type === 'month').value;
+      const d = p.find(x => x.type === 'day').value;
+
+      return `${y}-${m}-${d}`;
+    }
+
+    function hourInTz(t, tz){
+      const p = new Intl.DateTimeFormat('en-GB', {
+        timeZone: tz,
+        hour: '2-digit',
+        hourCycle: 'h23'
+      }).formatToParts(t);
+
+      return parseInt(p.find(x => x.type === 'hour').value, 10);
+    }
+
+    function buildDaysIso(startIso, endIso){
+      const [sy, sm, sd] = startIso.split('-').map(Number);
+      const [ey, em, ed] = endIso.split('-').map(Number);
+
+      const start = Date.UTC(sy, sm - 1, sd);
+      const end = Date.UTC(ey, em - 1, ed);
+
+      const out = [];
+      for(let ms = start; ms <= end; ms += 86400000){
+        const d = new Date(ms);
+        out.push(`${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`);
+      }
+      return out;
+    }
+
+    function frDateLabelIso(di, tz){
+      const d = new Date(di + 'T12:00:00Z');
+      return d.toLocaleDateString('fr-FR', {
+        timeZone: tz,
+        weekday: 'long',
+        day: '2-digit',
+        month: 'long'
+      }).replace(/^./, c => c.toUpperCase());
+    }
+
+    function round1(x){
+      return Math.round(x * 10) / 10;
+    }
+
+    function roundInt(x){
+      return Math.round(x);
+    }
+
+    function normalizeDeg(deg){
+      if (!Number.isFinite(deg)) return null;
+      return ((deg % 360) + 360) % 360;
+    }
+
+    function windToDeg(fromDeg){
+      const d = normalizeDeg(fromDeg);
+      if (d == null) return null;
+      return (d + 180) % 360;
+    }
+
+    function blowToLabel(toDeg){
+      const d = normalizeDeg(toDeg);
+      if (d == null) return '';
+
+      if (d < 51)  return 'vers route P2111-P2118';
+      if (d < 131) return 'vers Rmila/Ouled Chrif';
+      if (d < 181) return "vers Ciel/Ouled l'Garn";
+      if (d < 231) return 'vers Madrassa/Bensassi/ByAir';
+      if (d < 261) return "vers l'ghaba/Marrakech";
+      if (d < 311) return 'vers JetSki/cables HT';
+      return 'vers Montagne/route P2111';
+    }
+
+    function circularMeanDeg(sumSin, sumCos){
+      if (Math.abs(sumSin) < 1e-9 && Math.abs(sumCos) < 1e-9) return null;
+      const deg = Math.atan2(sumSin, sumCos) * 180 / Math.PI;
+      return (deg + 360) % 360;
+    }
+
+    function parseWeatherbitUtc(value){
+      if (typeof value !== 'string') return null;
+
+      const m = value.trim().match(
+        /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2})(?::(\d{2}))?(?::(\d{2}))?$/
+      );
+
+      if (!m) return null;
+
+      const [, y, mo, d, h, mi = '00', s = '00'] = m;
+      return new Date(Date.UTC(+y, +mo - 1, +d, +h, +mi, +s));
+    }
+
+    async function fetchJSON(url, options){
+      const r = await fetch(url, options);
+      if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+      return r.json();
+    }
+
+    async function fetchOpenMeteo(lat, lon, sd, ed, tz){
+      const url =
+        `https://api.open-meteo.com/v1/forecast` +
+        `?latitude=${lat}` +
+        `&longitude=${lon}` +
+        `&hourly=wind_speed_10m,wind_gusts_10m,wind_direction_10m` +
+        `&start_date=${sd}` +
+        `&end_date=${ed}` +
+        `&timezone=${encodeURIComponent(tz)}` +
+        `&timeformat=unixtime` +
+        `&wind_speed_unit=kmh`;
+
+      const js = await fetchJSON(url);
+      const times = js?.hourly?.time || [];
+      const wind = js?.hourly?.wind_speed_10m || [];
+      const gust = js?.hourly?.wind_gusts_10m || [];
+      const dir  = js?.hourly?.wind_direction_10m || [];
+
+      const out = [];
+      for(let i = 0; i < times.length; i++){
+        const w = toNum(wind[i]);
+        const g = toNum(gust[i]);
+        if (w == null || g == null) continue;
+
+        out.push({
+          t: new Date(times[i] * 1000),
+          wind: w,
+          gust: g,
+          dir: toNum(dir[i]),
+          src: 'open_meteo'
+        });
+      }
+      return out;
+    }
+
+    async function fetchECMWF(lat, lon, sd, ed, tz){
+      const url =
+        `https://api.open-meteo.com/v1/ecmwf` +
+        `?latitude=${lat}` +
+        `&longitude=${lon}` +
+        `&hourly=wind_speed_10m,wind_gusts_10m,wind_direction_10m` +
+        `&start_date=${sd}` +
+        `&end_date=${ed}` +
+        `&timezone=${encodeURIComponent(tz)}` +
+        `&timeformat=unixtime` +
+        `&wind_speed_unit=kmh`;
+
+      const js = await fetchJSON(url);
+      const times = js?.hourly?.time || [];
+      const wind = js?.hourly?.wind_speed_10m || [];
+      const gust = js?.hourly?.wind_gusts_10m || [];
+      const dir  = js?.hourly?.wind_direction_10m || [];
+
+      const out = [];
+      for(let i = 0; i < times.length; i++){
+        const w = toNum(wind[i]);
+        const g = toNum(gust[i]);
+        if (w == null || g == null) continue;
+
+        out.push({
+          t: new Date(times[i] * 1000),
+          wind: w,
+          gust: g,
+          dir: toNum(dir[i]),
+          src: 'ecmwf'
+        });
+      }
+      return out;
+    }
+
+    async function fetchWeatherbit(lat, lon, key){
+      if (!key) return [];
+
+      const url =
+        `https://api.weatherbit.io/v2.0/forecast/hourly` +
+        `?lat=${lat}` +
+        `&lon=${lon}` +
+        `&hours=${WEATHERBIT_HOURS}` +
+        `&key=${encodeURIComponent(key)}`;
+
+      const js = await fetchJSON(url);
+      const data = js?.data || [];
+
+      const out = [];
+      for(const h of data){
+        let t = null;
+
+        if (Number.isFinite(Number(h.ts))){
+          t = new Date(Number(h.ts) * 1000);
+        } else {
+          t = parseWeatherbitUtc(h.timestamp_utc);
+        }
+
+        if (!t || Number.isNaN(t.getTime())) continue;
+
+        const w = toNum(h.wind_spd);
+        const g = toNum(h.wind_gust_spd);
+        if (w == null || g == null) continue;
+
+        out.push({
+          t,
+          wind: w * 3.6,
+          gust: g * 3.6,
+          dir: toNum(h.wind_dir),
+          src: 'weatherbit'
+        });
+      }
+
+      return out;
+    }
+
+    function aggregate(records, tz, startIso, endIso){
+      const daysIso = buildDaysIso(startIso, endIso);
+      const firstDayIso = daysIso[0];
+      const grid = Object.fromEntries(daysIso.map(di => [di, {}]));
+
+      for(const rec of records){
+        const di = dateIsoInTz(rec.t, tz);
+        if (di < startIso || di > endIso) continue;
+
+        const hour = hourInTz(rec.t, tz);
+        if (!HRS.includes(hour)) continue;
+
+        const value = (rec.wind + rec.gust) / 2;
+
+        grid[di][hour] = grid[di][hour] || {
+          sum: 0,
+          n: 0,
+          dirSin: 0,
+          dirCos: 0
+        };
+
+        grid[di][hour].sum += value;
+        grid[di][hour].n += 1;
+
+        if (di === firstDayIso && Number.isFinite(rec.dir)){
+          const rad = rec.dir * Math.PI / 180;
+          const weight = Math.max(value, 0.1);
+          grid[di][hour].dirSin += Math.sin(rad) * weight;
+          grid[di][hour].dirCos += Math.cos(rad) * weight;
+        }
+      }
+
+      return { daysIso, grid };
+    }
+
+    function renderTable(daysIso, grid, tz){
+      const tbl = document.getElementById('tbl');
+      tbl.innerHTML = '';
+
+      const thead = document.createElement('thead');
+      const trh = document.createElement('tr');
+      trh.appendChild(document.createElement('th'));
+
+      for(const h of HRS){
+        const th = document.createElement('th');
+        th.innerHTML = `${pad2(h)}:00<br><span class="small">Vent moy (km/h)</span>`;
+        trh.appendChild(th);
+      }
+
+      thead.appendChild(trh);
+      tbl.appendChild(thead);
+
+      const tbody = document.createElement('tbody');
+
+      for(const di of daysIso){
+        const tr = document.createElement('tr');
+
+        const th = document.createElement('th');
+        th.textContent = frDateLabelIso(di, tz);
+        tr.appendChild(th);
+
+        for(const h of HRS){
+          const cell = document.createElement('td');
+          cell.className = 'cell';
+
+          const slot = grid[di]?.[h];
+
+          if (slot && slot.n > 0){
+            const mean = slot.sum / slot.n;
+            const oneDec = round1(mean);
+            const v = roundInt(oneDec);
+
+            const isFirstDay = di === daysIso[0];
+            const fromDeg = isFirstDay ? circularMeanDeg(slot.dirSin, slot.dirCos) : null;
+            const toDeg = fromDeg != null ? windToDeg(fromDeg) : null;
+            const dirText = (isFirstDay && toDeg != null)
+              ? `<span class="dir">${blowToLabel(toDeg)}</span>`
+              : '';
+
+            cell.style.background = COLORS(v);
+            cell.innerHTML = `${v}${dirText}`;
+          } else {
+            cell.style.background = '#e4e7f1';
+            cell.innerHTML = `<span class="small">—</span>`;
+          }
+
+          tr.appendChild(cell);
+        }
+
+        tbody.appendChild(tr);
+      }
+
+      tbl.appendChild(tbody);
+    }
+
+    async function run(){
+      const err = document.getElementById('errors');
+      err.classList.add('hidden');
+      err.textContent = '';
+
+      const { startIso: sd, endIso: ed } = startEndIsoInTz(TZ);
+
+      const sources = [
+        { name: 'Open-Meteo', fn: () => fetchOpenMeteo(LAT, LON, sd, ed, TZ) },
+        { name: 'ECMWF', fn: () => fetchECMWF(LAT, LON, sd, ed, TZ) },
+        { name: 'Weatherbit', fn: () => fetchWeatherbit(LAT, LON, WEATHERBIT_KEY) }
+      ];
+
+      try{
+        const settled = await Promise.allSettled(sources.map(s => s.fn()));
+
+        const all = [];
+        const failed = [];
+
+        settled.forEach((res, i) => {
+          if (res.status === 'fulfilled') {
+            all.push(...res.value);
+          } else {
+            failed.push(`${sources[i].name}: ${res.reason?.message || 'erreur inconnue'}`);
+          }
+        });
+
+        if (!all.length) {
+          throw new Error('Aucune donnée météo disponible');
+        }
+
+        const { daysIso, grid } = aggregate(all, TZ, sd, ed);
+        renderTable(daysIso, grid, TZ);
+
+        if (failed.length){
+          err.textContent = `Sources partiellement indisponibles :\n${failed.join('\n')}`;
+          err.classList.remove('hidden');
+        }
+      }catch(e){
+        err.textContent = `Erreur: ${e.message}. Vérifiez la connexion réseau.`;
+        err.classList.remove('hidden');
+      }
+    }
+
+    run();
+  </script>
+</body>
+</html>
