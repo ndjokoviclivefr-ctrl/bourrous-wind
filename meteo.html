@@ -1,0 +1,766 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Météo 06–10 — Statut (Bourrous)</title>
+  <style>
+    :root{
+      --bg:#0b1020; --card:#111730; --text:#e8eefb; --muted:#9fb0d3;
+      --green:#c8e6c9;
+      --yellow:#ffff00;
+      --orange:#ffa500;
+      --red:#ff0000;
+      --na:#e4e7f1;
+    }
+
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial,"Noto Sans",sans-serif;
+      background:var(--bg);
+      color:var(--text);
+    }
+
+    .wrap{max-width:980px; margin:0 auto; padding:0 10px 28px}
+    header{padding:14px 6px 8px}
+    h1{font-size:18px; margin:0 0 6px 0}
+    .sub{color:#fff; font-size:12px; line-height:1.3}
+
+    .card{
+      background:var(--card);
+      border:1px solid #1d2646;
+      border-radius:16px;
+      padding:10px;
+      box-shadow:0 6px 24px rgba(0,0,0,.25);
+    }
+
+    .brand{display:flex; align-items:center; gap:14px; margin-bottom:10px}
+    .logo{
+      width:88px; height:88px; object-fit:contain; background:#fff; padding:6px;
+      border-radius:12px; border:1px solid #1d2646;
+      box-shadow:0 3px 16px rgba(0,0,0,.35);
+      image-rendering:-webkit-optimize-contrast;
+    }
+    .brand .name{font-weight:700; letter-spacing:.2px}
+
+    .legend{display:flex; gap:10px; flex-wrap:wrap; margin:10px 0 6px}
+    .badge{display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--muted); padding:2px 0}
+
+    .table{width:100%; border-collapse:separate; border-spacing:6px; table-layout:fixed}
+    .table thead th{
+      position:sticky; top:0; background:var(--bg); z-index:1;
+      font-size:12px; color:#fff; padding:6px 2px;
+    }
+    .table thead th .small{color:#fff !important}
+    .table tbody th{
+      font-size:13px; color:var(--text); text-align:left; padding:10px 6px;
+    }
+
+    .cell{
+      border-radius:10px;
+      text-align:center;
+      padding:14px 6px;
+      font-weight:800;
+      letter-spacing:.2px;
+      color:#fff !important;
+      line-height:1.15;
+      word-break:break-word;
+      font-size:26px;
+      background:var(--card);
+      box-shadow:inset 0 0 0 3px var(--card);
+    }
+
+    .small{font-size:11px; font-weight:600; color:#fff}
+
+    .footer{margin-top:8px; font-size:12px; color:var(--muted); line-height:1.4}
+    .err{
+      margin-top:10px;
+      background:#2b1a1a;
+      border:1px solid #6b2a2a;
+      color:#ffb4b4;
+      padding:10px;
+      border-radius:10px;
+      font-size:13px;
+      white-space:pre-line;
+    }
+    .hidden{display:none}
+  </style>
+</head>
+<body>
+  <header class="wrap">
+    <div class="brand">
+      <img
+        class="logo"
+        alt="Atlas Montgolfière logo"
+        src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSe2BA0J-TN9LaQHutj3corvQzucK1b78ybkg&s"
+        loading="eager"
+        decoding="sync"
+      />
+      <div>
+        <div class="name">Atlas Montgolfière</div>
+        <div class="sub">Bourrous, Marrakech</div>
+      </div>
+    </div>
+
+    <h1>Statut météo 06–10</h1>
+    <div class="sub">
+      statut = pire cas parmi les sources disponibles<br>
+      Sources : Open-Meteo, ECMWF, Weatherbit<br>
+      pluie faible si précipitations &gt; 0,1 mm/h • pluie si &gt; 1,0 mm/h • pluie intense si &gt; 2,5 mm/h
+    </div>
+  </header>
+
+  <main class="wrap">
+    <div class="card">
+      <div class="legend">
+        <span class="badge">☀️ Sun</span>
+        <span class="badge">🌤️ Light Cloud</span>
+        <span class="badge">☁️ Heavy Cloud</span>
+        <span class="badge">🌦️ Light Rain</span>
+        <span class="badge">🌧️ Rain</span>
+        <span class="badge">🌧️+ Heavy Rain</span>
+        <span class="badge">🌫️ Fog</span>
+        <span class="badge">⛈️ Storm</span>
+      </div>
+
+      <div id="tableWrap" class="card">
+        <table class="table" id="tbl"></table>
+      </div>
+
+      <div class="footer" id="stamp"></div>
+      <div class="footer" style="margin-top:6px;">
+  Fog: affiché seulement si au moins 2 sources distinctes donnent chacune un code explicite de brouillard
+  et un fogScore ≥ 3, avec au moins 1 de ces sources ayant une visibilité ≤ 0,20 km.
+  La visibilité seule ne déclenche jamais Fog.
+</div>
+
+      <div id="errors" class="err hidden"></div>
+    </div>
+  </main>
+
+  <script>
+    const LAT = 31.764051550936518;
+    const LON = -7.817831413787898;
+    const TZ  = "Africa/Casablanca";
+    const WEATHERBIT_KEY = "20f0554534cd4734a1a681cea2acfbff";
+
+    const HRS = [6, 7, 8, 9, 10];
+    const WEATHERBIT_HOURS = 120;
+
+    const FOG_VIS_SUPPORT_KM = 0.40;
+    const FOG_SINGLE_SOURCE_SCORE = 4;
+    const FOG_MULTI_SOURCE_SCORE = 3;
+
+    const STATUS = {
+      CLEAR: "Sun",
+      FEW: "Light Cloud",
+      OVERCAST: "Heavy Cloud",
+      RAIN_LIGHT: "Light Rain",
+      RAIN: "Rain",
+      RAIN_HEAVY: "Heavy Rain",
+      FOG: "Fog",
+      THUNDER: "Storm"
+    };
+
+    const DISPLAY = {
+      "Sun": "☀️",
+      "Light Cloud": "🌤️",
+      "Heavy Cloud": "☁️",
+      "Light Rain": "🌦️",
+      "Rain": "🌧️",
+      "Heavy Rain": "🌧️+",
+      "Fog": "🌫️",
+      "Storm": "⛈️"
+    };
+
+    const SEVERITY = {
+      "Sun": 0,
+      "Light Cloud": 1,
+      "Heavy Cloud": 2,
+      "Light Rain": 3,
+      "Fog": 4,
+      "Rain": 4,
+      "Heavy Rain": 5,
+      "Storm": 6
+    };
+
+    const BORDER = {
+      "Sun": "var(--card)",
+      "Light Cloud": "var(--card)",
+      "Heavy Cloud": "var(--card)",
+      "Light Rain": "var(--card)",
+      "Rain": "var(--card)",
+      "Fog": "var(--card)",
+      "Heavy Rain": "var(--card)",
+      "Storm": "var(--card)"
+    };
+
+    function pad2(n){ return String(n).padStart(2, '0'); }
+
+    function toNum(v){
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    }
+
+    function ymdPartsInTz(dt, tz){
+      const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: tz,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      }).formatToParts(dt);
+
+      return {
+        y: parseInt(parts.find(x => x.type === 'year').value, 10),
+        m: parseInt(parts.find(x => x.type === 'month').value, 10),
+        d: parseInt(parts.find(x => x.type === 'day').value, 10)
+      };
+    }
+
+    function addDaysYmd(y, m, d, days){
+      const tmp = new Date(Date.UTC(y, m - 1, d) + days * 86400000);
+      return {
+        y: tmp.getUTCFullYear(),
+        m: tmp.getUTCMonth() + 1,
+        d: tmp.getUTCDate()
+      };
+    }
+
+    function startEndIsoInTz(tz){
+      const now = new Date();
+
+      const hp = new Intl.DateTimeFormat('en-GB', {
+        timeZone: tz,
+        hour: '2-digit',
+        hourCycle: 'h23'
+      }).formatToParts(now);
+
+      const hour = parseInt(hp.find(x => x.type === 'hour').value, 10);
+
+      let { y, m, d } = ymdPartsInTz(now, tz);
+      if (hour >= 9) ({ y, m, d } = addDaysYmd(y, m, d, 1));
+
+      const startIso = `${y}-${pad2(m)}-${pad2(d)}`;
+      const e = addDaysYmd(y, m, d, 4);
+      const endIso = `${e.y}-${pad2(e.m)}-${pad2(e.d)}`;
+
+      return { startIso, endIso };
+    }
+
+    function dateIsoInTz(t, tz){
+      const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: tz,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      }).formatToParts(t);
+
+      const y = parts.find(x => x.type === 'year').value;
+      const m = parts.find(x => x.type === 'month').value;
+      const d = parts.find(x => x.type === 'day').value;
+
+      return `${y}-${m}-${d}`;
+    }
+
+    function hourInTz(t, tz){
+      const parts = new Intl.DateTimeFormat('en-GB', {
+        timeZone: tz,
+        hour: '2-digit',
+        hourCycle: 'h23'
+      }).formatToParts(t);
+
+      return parseInt(parts.find(x => x.type === 'hour').value, 10);
+    }
+
+    function buildDaysIso(startIso, endIso){
+      const [sy, sm, sd] = startIso.split('-').map(Number);
+      const [ey, em, ed] = endIso.split('-').map(Number);
+
+      const start = Date.UTC(sy, sm - 1, sd);
+      const end = Date.UTC(ey, em - 1, ed);
+
+      const out = [];
+      for(let ms = start; ms <= end; ms += 86400000){
+        const d = new Date(ms);
+        out.push(`${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`);
+      }
+      return out;
+    }
+
+    function frDateLabelIso(di, tz){
+      const d = new Date(di + 'T12:00:00Z');
+      return d.toLocaleDateString('fr-FR', {
+        timeZone: tz,
+        weekday: 'long',
+        day: '2-digit',
+        month: 'long'
+      }).replace(/^./, c => c.toUpperCase());
+    }
+
+    function parseWeatherbitUtc(value){
+      if (typeof value !== 'string') return null;
+
+      const m = value.trim().match(
+        /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2})(?::(\d{2}))?(?::(\d{2}))?$/
+      );
+
+      if (!m) return null;
+
+      const [, y, mo, d, h, mi = '00', s = '00'] = m;
+      return new Date(Date.UTC(+y, +mo - 1, +d, +h, +mi, +s));
+    }
+
+    function isFogFromOpenMeteoCode(code){
+      return code === 45 || code === 48;
+    }
+
+    function isFogFromWeatherbitCode(code){
+      return code === 741 || code === 751;
+    }
+
+    function isThunderFromOpenMeteoCode(code){
+      return code >= 95 && code <= 99;
+    }
+
+    function openMeteoCloudStatus(code){
+      if (code === 0) return STATUS.CLEAR;
+      if (code === 1 || code === 2) return STATUS.FEW;
+      if (code === 3) return STATUS.OVERCAST;
+      return null;
+    }
+
+    function openMeteoRainStatus(code){
+      if (code === 65 || code === 67 || code === 82) return STATUS.RAIN_HEAVY;
+      if (code === 63 || code === 66 || code === 81) return STATUS.RAIN;
+      if (
+        (code >= 51 && code <= 57) ||
+        code === 61 ||
+        (code >= 71 && code <= 77) ||
+        code === 80 ||
+        (code >= 85 && code <= 86)
+      ) return STATUS.RAIN_LIGHT;
+      return null;
+    }
+
+    function weatherbitCloudStatus(code){
+      if (code === 800) return STATUS.CLEAR;
+      if (code === 801 || code === 802) return STATUS.FEW;
+      if (code === 803 || code === 804) return STATUS.OVERCAST;
+      return null;
+    }
+
+    function isThunderFromWeatherbitCode(code){
+      return code >= 200 && code < 300;
+    }
+
+    function weatherbitRainStatus(code){
+      if (code === 502 || code === 503 || code === 504 || code === 522) return STATUS.RAIN_HEAVY;
+      if (
+        (code >= 300 && code < 400) ||
+        (code >= 500 && code < 600) ||
+        (code >= 600 && code < 700)
+      ) return STATUS.RAIN_LIGHT;
+      return null;
+    }
+
+    function fogScoreFromMetrics(tempC, dewC, rh, windMs){
+      let score = 0;
+
+      if (tempC != null && dewC != null){
+        const dpd = tempC - dewC;
+        if (dpd <= 0.8) score += 2;
+        else if (dpd <= 1.5) score += 1;
+      }
+
+      if (rh != null){
+        if (rh >= 99) score += 2;
+        else if (rh >= 98) score += 1;
+      }
+
+      if (windMs != null){
+        if (windMs >= 0.4 && windMs <= 1.8) score += 2;
+        else if (windMs > 1.8 && windMs <= 2.5) score += 1;
+      }
+
+      return score;
+    }
+
+    function classifyRecord(rec){
+      const fogScore = fogScoreFromMetrics(rec.temp, rec.dew, rec.rh, rec.wind_ms);
+
+      const explicitFogCode =
+        (((rec.src === 'open_meteo' || rec.src === 'ecmwf') &&
+          rec.wcode != null &&
+          isFogFromOpenMeteoCode(Number(rec.wcode)))) ||
+        ((rec.src === 'weatherbit') &&
+          rec.wbcode != null &&
+          isFogFromWeatherbitCode(Number(rec.wbcode)));
+
+      const lowVisFog = rec.vis_km != null && rec.vis_km <= FOG_VIS_SUPPORT_KM;
+
+      if ((rec.src === 'open_meteo' || rec.src === 'ecmwf') && rec.wcode != null){
+        if (isThunderFromOpenMeteoCode(Number(rec.wcode))){
+          return { baseStatus: STATUS.THUNDER, fogScore, explicitFogCode, lowVisFog };
+        }
+      }
+
+      if (rec.src === 'weatherbit' && rec.wbcode != null){
+        if (isThunderFromWeatherbitCode(Number(rec.wbcode))){
+          return { baseStatus: STATUS.THUNDER, fogScore, explicitFogCode, lowVisFog };
+        }
+      }
+
+      const precip = rec.precip != null ? Number(rec.precip) : 0;
+      if (precip > 2.5) return { baseStatus: STATUS.RAIN_HEAVY, fogScore, explicitFogCode, lowVisFog };
+      if (precip > 1.0) return { baseStatus: STATUS.RAIN, fogScore, explicitFogCode, lowVisFog };
+      if (precip > 0.1) return { baseStatus: STATUS.RAIN_LIGHT, fogScore, explicitFogCode, lowVisFog };
+
+      if ((rec.src === 'open_meteo' || rec.src === 'ecmwf') && rec.wcode != null){
+        const rs = openMeteoRainStatus(Number(rec.wcode));
+        if (rs) return { baseStatus: rs, fogScore, explicitFogCode, lowVisFog };
+      }
+
+      if (rec.src === 'weatherbit' && rec.wbcode != null){
+        const rs = weatherbitRainStatus(Number(rec.wbcode));
+        if (rs) return { baseStatus: rs, fogScore, explicitFogCode, lowVisFog };
+      }
+
+      if ((rec.src === 'open_meteo' || rec.src === 'ecmwf') && rec.wcode != null){
+        const cs = openMeteoCloudStatus(Number(rec.wcode));
+        if (cs) return { baseStatus: cs, fogScore, explicitFogCode, lowVisFog };
+      }
+
+      if (rec.src === 'weatherbit' && rec.wbcode != null){
+        const cs = weatherbitCloudStatus(Number(rec.wbcode));
+        if (cs) return { baseStatus: cs, fogScore, explicitFogCode, lowVisFog };
+      }
+
+      const cloud = rec.cloud != null ? Number(rec.cloud) : null;
+      if (cloud != null){
+        if (cloud < 20) return { baseStatus: STATUS.CLEAR, fogScore, explicitFogCode, lowVisFog };
+        if (cloud < 60) return { baseStatus: STATUS.FEW, fogScore, explicitFogCode, lowVisFog };
+        return { baseStatus: STATUS.OVERCAST, fogScore, explicitFogCode, lowVisFog };
+      }
+
+      return { baseStatus: STATUS.FEW, fogScore, explicitFogCode, lowVisFog };
+    }
+
+    function worstStatus(statuses){
+      let best = STATUS.CLEAR;
+      let bestScore = -1;
+
+      for (const s of statuses){
+        const sc = SEVERITY[s] != null ? SEVERITY[s] : -1;
+        if (sc > bestScore){
+          best = s;
+          bestScore = sc;
+        }
+      }
+      return best;
+    }
+
+    function decideCellStatus(arr){
+  const worstBase = worstStatus(arr.map(x => x.baseStatus));
+
+  if (
+    worstBase === STATUS.THUNDER ||
+    worstBase === STATUS.RAIN_HEAVY ||
+    worstBase === STATUS.RAIN ||
+    worstBase === STATUS.RAIN_LIGHT
+  ) return worstBase;
+
+  const multiFogCandidates = arr.filter(x =>
+    x.explicitFogCode &&
+    x.fogScore >= FOG_MULTI_SOURCE_SCORE
+  );
+
+  const distinctSources = new Set(
+    multiFogCandidates.map(x => x.src)
+  ).size;
+
+  const hasLowVisSupport = multiFogCandidates.some(x => x.lowVisFog);
+
+  if (distinctSources >= 2 && hasLowVisSupport) {
+    return STATUS.FOG;
+  }
+
+  return worstBase;
+}
+    async function fetchJSON(url, options){
+      const r = await fetch(url, options);
+      if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+      return r.json();
+    }
+
+    async function fetchOpenMeteo(lat, lon, sd, ed, tz){
+      const url =
+        `https://api.open-meteo.com/v1/forecast` +
+        `?latitude=${lat}` +
+        `&longitude=${lon}` +
+        `&hourly=precipitation,cloud_cover,weather_code,temperature_2m,dew_point_2m,relative_humidity_2m,wind_speed_10m,visibility` +
+        `&start_date=${sd}` +
+        `&end_date=${ed}` +
+        `&timezone=${encodeURIComponent(tz)}` +
+        `&timeformat=unixtime` +
+        `&wind_speed_unit=ms`;
+
+      const js = await fetchJSON(url);
+      const h = js?.hourly || {};
+
+      const tArr = h.time || [];
+      const pArr = h.precipitation || [];
+      const cArr = h.cloud_cover || [];
+      const wArr = h.weather_code || [];
+      const tempArr = h.temperature_2m || [];
+      const dewArr = h.dew_point_2m || [];
+      const rhArr = h.relative_humidity_2m || [];
+      const windArr = h.wind_speed_10m || [];
+      const visArr = h.visibility || [];
+
+      const out = [];
+      for(let i = 0; i < tArr.length; i++){
+        out.push({
+          t: new Date(Number(tArr[i]) * 1000),
+          precip: toNum(pArr[i]) ?? 0,
+          cloud: toNum(cArr[i]),
+          wcode: toNum(wArr[i]),
+          temp: toNum(tempArr[i]),
+          dew: toNum(dewArr[i]),
+          rh: toNum(rhArr[i]),
+          wind_ms: toNum(windArr[i]),
+          vis_km: toNum(visArr[i]) != null ? toNum(visArr[i]) / 1000 : null,
+          src: 'open_meteo'
+        });
+      }
+      return out;
+    }
+
+    async function fetchECMWF(lat, lon, sd, ed, tz){
+      const url =
+        `https://api.open-meteo.com/v1/ecmwf` +
+        `?latitude=${lat}` +
+        `&longitude=${lon}` +
+        `&hourly=precipitation,cloud_cover,weather_code,temperature_2m,dew_point_2m,wind_speed_10m,visibility` +
+        `&start_date=${sd}` +
+        `&end_date=${ed}` +
+        `&timezone=${encodeURIComponent(tz)}` +
+        `&timeformat=unixtime` +
+        `&wind_speed_unit=ms`;
+
+      const js = await fetchJSON(url);
+      const h = js?.hourly || {};
+
+      const tArr = h.time || [];
+      const pArr = h.precipitation || [];
+      const cArr = h.cloud_cover || [];
+      const wArr = h.weather_code || [];
+      const tempArr = h.temperature_2m || [];
+      const dewArr = h.dew_point_2m || [];
+      const rhArr = h.relative_humidity_2m || [];
+      const windArr = h.wind_speed_10m || [];
+      const visArr = h.visibility || [];
+
+      const out = [];
+      for(let i = 0; i < tArr.length; i++){
+        out.push({
+          t: new Date(Number(tArr[i]) * 1000),
+          precip: toNum(pArr[i]) ?? 0,
+          cloud: toNum(cArr[i]),
+          wcode: toNum(wArr[i]),
+          temp: toNum(tempArr[i]),
+          dew: toNum(dewArr[i]),
+          rh: toNum(rhArr[i]),
+          wind_ms: toNum(windArr[i]),
+          vis_km: toNum(visArr[i]) != null ? toNum(visArr[i]) / 1000 : null,
+          src: 'ecmwf'
+        });
+      }
+      return out;
+    }
+
+    async function fetchWeatherbit(lat, lon, key){
+      if (!key) return [];
+
+      const url =
+        `https://api.weatherbit.io/v2.0/forecast/hourly` +
+        `?lat=${lat}` +
+        `&lon=${lon}` +
+        `&hours=${WEATHERBIT_HOURS}` +
+        `&key=${encodeURIComponent(key)}`;
+
+      const js = await fetchJSON(url);
+      const data = js?.data || [];
+
+      const out = [];
+      for (const h of data){
+        let t = null;
+
+        if (Number.isFinite(Number(h.ts))){
+          t = new Date(Number(h.ts) * 1000);
+        } else if (typeof h.timestamp_utc === 'string') {
+          t = parseWeatherbitUtc(h.timestamp_utc);
+        }
+
+        if (!t || Number.isNaN(t.getTime())) continue;
+
+        out.push({
+          t,
+          precip: toNum(h.precip) ?? 0,
+          cloud: toNum(h.clouds),
+          temp: toNum(h.temp),
+          dew: toNum(h.dewpt),
+          rh: toNum(h.rh),
+          wind_ms: toNum(h.wind_spd),
+          vis_km: toNum(h.vis),
+          wbcode: toNum(h.weather?.code),
+          src: 'weatherbit'
+        });
+      }
+
+      return out;
+    }
+
+    function aggregate(records, tz, startIso, endIso){
+      const daysIso = buildDaysIso(startIso, endIso);
+      const grid = Object.fromEntries(daysIso.map(di => [di, {}]));
+
+      for (const rec of records){
+        const di = dateIsoInTz(rec.t, tz);
+        if (di < startIso || di > endIso) continue;
+
+        const hour = hourInTz(rec.t, tz);
+        if (!HRS.includes(hour)) continue;
+
+        const cls = classifyRecord(rec);
+
+        grid[di][hour] = grid[di][hour] || [];
+        grid[di][hour].push({
+          src: rec.src,
+          baseStatus: cls.baseStatus,
+          fogScore: cls.fogScore,
+          explicitFogCode: cls.explicitFogCode,
+          lowVisFog: cls.lowVisFog
+        });
+      }
+
+      return { daysIso, grid };
+    }
+
+    function renderTable(daysIso, grid, tz){
+      const tbl = document.getElementById('tbl');
+      tbl.innerHTML = '';
+
+      const thead = document.createElement('thead');
+      const trh = document.createElement('tr');
+      trh.appendChild(document.createElement('th'));
+
+      for (const h of HRS){
+        const th = document.createElement('th');
+        th.innerHTML = `${pad2(h)}:00<br><span class="small">Statut</span>`;
+        trh.appendChild(th);
+      }
+
+      thead.appendChild(trh);
+      tbl.appendChild(thead);
+
+      const tbody = document.createElement('tbody');
+
+      for (const di of daysIso){
+        const tr = document.createElement('tr');
+
+        const th = document.createElement('th');
+        th.textContent = frDateLabelIso(di, tz);
+        tr.appendChild(th);
+
+        for (const h of HRS){
+          const td = document.createElement('td');
+          td.className = 'cell';
+
+          const arr = grid[di]?.[h];
+
+          if (arr && arr.length){
+            const s = decideCellStatus(arr);
+            td.style.background = 'var(--card)';
+            td.style.boxShadow = `inset 0 0 0 3px ${BORDER[s] || 'var(--card)'}`;
+            td.textContent = DISPLAY[s] || s;
+            td.title = s;
+          } else {
+            td.style.background = 'var(--card)';
+            td.style.boxShadow = 'inset 0 0 0 3px var(--card)';
+            td.innerHTML = '<span class="small">—</span>';
+          }
+
+          tr.appendChild(td);
+        }
+
+        tbody.appendChild(tr);
+      }
+
+      tbl.appendChild(tbody);
+    }
+
+    async function run(){
+      const err = document.getElementById('errors');
+      err.classList.add('hidden');
+      err.textContent = '';
+
+      const { startIso: sd, endIso: ed } = startEndIsoInTz(TZ);
+
+      const stamp = document.getElementById('stamp');
+      const timeStr = new Intl.DateTimeFormat('fr-FR', {
+        timeZone: TZ,
+        hour: '2-digit',
+        minute: '2-digit'
+      }).format(new Date());
+
+      const dateStr = new Intl.DateTimeFormat('fr-FR', {
+        timeZone: TZ,
+        day: '2-digit',
+        month: 'long',
+        year: 'numeric'
+      }).format(new Date());
+
+      stamp.textContent = `Exécuté à ${timeStr} le ${dateStr}`;
+
+      const sources = [
+        { name: 'Open-Meteo', fn: () => fetchOpenMeteo(LAT, LON, sd, ed, TZ) },
+        { name: 'ECMWF', fn: () => fetchECMWF(LAT, LON, sd, ed, TZ) },
+        { name: 'Weatherbit', fn: () => fetchWeatherbit(LAT, LON, WEATHERBIT_KEY) }
+      ];
+
+      try{
+        const settled = await Promise.allSettled(sources.map(s => s.fn()));
+
+        const all = [];
+        const failed = [];
+
+        settled.forEach((res, i) => {
+          if (res.status === 'fulfilled') {
+            all.push(...res.value);
+          } else {
+            failed.push(`${sources[i].name}: ${res.reason?.message || 'erreur inconnue'}`);
+          }
+        });
+
+        if (!all.length){
+          throw new Error('Aucune donnée météo disponible');
+        }
+
+        const { daysIso, grid } = aggregate(all, TZ, sd, ed);
+        renderTable(daysIso, grid, TZ);
+
+        if (failed.length){
+          err.textContent = `Sources partiellement indisponibles :\n${failed.join('\n')}`;
+          err.classList.remove('hidden');
+        }
+      } catch(e){
+        err.textContent = `Erreur: ${e.message}. Vérifiez la connexion réseau.`;
+        err.classList.remove('hidden');
+      }
+    }
+
+    run();
+  </script>
+</body>
+</html>
